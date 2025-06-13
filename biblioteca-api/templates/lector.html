@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Biblioteca - Panel del Lector</title>
+    <link rel="stylesheet" href="style3.css">
+</head>
+<body>
+    <div class="header">
+        <h1>📚 Sistema de Biblioteca</h1>
+        <div class="user-info">
+            <span id="user-welcome">Bienvenido, Usuario</span>
+            <button class="btn btn-danger" onclick="cerrarSesion()">Cerrar Sesión</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div id="alert-container"></div>
+        
+        <div class="nav-tabs">
+            <button class="nav-tab active" onclick="showTab('libros')">📖 Libros Disponibles</button>
+            <button class="nav-tab" onclick="showTab('prestamos')">📋 Mis Préstamos</button>
+            <button class="nav-tab" onclick="showTab('adeudos')">💰 Adeudos</button>
+        </div>
+
+        <div class="tab-content">
+            <!-- Tab Libros -->
+            <div id="libros" class="tab-pane active">
+                <input type="text" class="search-bar" id="search-books" placeholder="Buscar libros por título o autor...">
+                <div class="books-grid" id="books-container"></div>
+            </div>
+
+            <!-- Tab Préstamos -->
+            <div id="prestamos" class="tab-pane">
+                <h2>Mis Préstamos Activos</h2>
+                <div class="loan-list" id="loans-container"></div>
+            </div>
+
+            <!-- Tab Adeudos -->
+            <div id="adeudos" class="tab-pane">
+                <div class="debt-summary" id="debt-summary"></div>
+                <div class="loan-list" id="overdue-loans"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para confirmar préstamo -->
+    <div id="loan-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 2rem; border-radius: 10px; max-width: 400px; width: 90%;">
+            <h3 id="modal-title">Confirmar Préstamo</h3>
+            <p id="modal-content">¿Deseas solicitar el préstamo de este libro?</p>
+            <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1rem;">
+                <button class="btn btn-secondary" onclick="closeLoanModal()">Cancelar</button>
+                <button class="btn btn-primary" onclick="confirmLoan()">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:8080/api';
+        let currentUser = null;
+        let selectedBookForLoan = null;
+        let books = [];
+        let loans = [];
+        let userRatings = {}; // Simulamos las calificaciones en memoria
+
+        // Función para hacer peticiones HTTP
+        async function fetchAPI(endpoint, options = {}) {
+            try {
+                // Asegurarse de que el endpoint comience con /
+                if (!endpoint.startsWith('/')) {
+                    endpoint = '/' + endpoint;
+                }
+
+                const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    },
+                    ...options
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => null);
+                    let errorMessage;
+                    
+                    if (errorData) {
+                        errorMessage = errorData.message || errorData.error;
+                    } else {
+                        switch (response.status) {
+                            case 404:
+                                errorMessage = 'El recurso solicitado no existe';
+                                break;
+                            case 400:
+                                errorMessage = 'Datos inválidos';
+                                break;
+                            case 401:
+                                errorMessage = 'No autorizado';
+                                break;
+                            case 403:
+                                errorMessage = 'Acceso denegado';
+                                break;
+                            case 500:
+                                errorMessage = 'Error interno del servidor';
+                                break;
+                            default:
+                                errorMessage = 'Error en la operación';
+                        }
+                    }
+                    
+                    throw new Error(errorMessage);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                console.error('Error en la petición:', error);
+                if (error.message === 'Failed to fetch') {
+                    mostrarAlerta('No se pudo conectar con el servidor. Por favor, verifique que el servidor esté en ejecución.', 'error');
+                } else {
+                    mostrarAlerta(error.message, 'error');
+                }
+                return null;
+            }
+        }
+
+        // Inicialización
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+            // Verificar sesión
+            const usuarioLogueado = sessionStorage.getItem('usuarioLogueado');
+            if (!usuarioLogueado) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            currentUser = JSON.parse(usuarioLogueado);
+            document.getElementById('user-welcome').textContent = `Bienvenido, ${currentUser.nombre}`;
+
+            // Cargar calificaciones del usuario desde memoria local
+            const savedRatings = localStorage.getItem(`ratings_${currentUser.id}`);
+            if (savedRatings) {
+                userRatings = JSON.parse(savedRatings);
+            }
+
+                // Verificar conexión con el servidor
+                const testConnection = await fetchAPI('/libros');
+                if (!testConnection) {
+                    mostrarAlerta('No se pudo conectar con el servidor. Por favor, verifique que el servidor esté en ejecución.', 'error');
+                    return;
+                }
+
+            // Cargar datos
+                await loadBooks();
+                await loadLoans();
+                await loadDebts();
+
+            // Configurar búsqueda
+            document.getElementById('search-books').addEventListener('input', filterBooks);
+            } catch (error) {
+                console.error('Error en la inicialización:', error);
+                mostrarAlerta('Error al inicializar la aplicación. Por favor, verifique que el servidor esté en ejecución.', 'error');
+            }
+        });
+
+        // Función para mostrar alertas
+        function mostrarAlerta(mensaje, tipo = 'success') {
+            const alertContainer = document.getElementById('alert-container');
+            alertContainer.innerHTML = '';
+            
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${tipo}`;
+            alert.textContent = mensaje;
+            
+            alertContainer.appendChild(alert);
+            
+            setTimeout(() => {
+                alert.remove();
+            }, 5000);
+        }
+
+        // Función para cambiar de tab
+        function showTab(tabName) {
+            // Ocultar todas las tabs
+            document.querySelectorAll('.tab-pane').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            // Mostrar tab seleccionada
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+
+            // Recargar datos según la tab
+            if (tabName === 'prestamos') {
+                loadLoans();
+            } else if (tabName === 'adeudos') {
+                loadDebts();
+            }
+        }
+
+        // Cargar libros (adaptado a tu estructura de BD)
+        async function loadBooks() {
+            const data = await fetchAPI('libros');
+            if (data) {
+                // Adaptar estructura de datos del backend a tu BD
+                books = data.map(book => ({
+                    id: book.id,
+                    titulo: book.titulo,
+                    autor: book.autor,
+                    isbn: book.isbn,
+                    categoria: book.genero || book.categoria,
+                    disponible: book.cantidad_disponible > 0,
+                    ejemplares: book.cantidad_disponible // Cambiado para tu BD
+                }));
+                displayBooks(books);
+            }
+        }
+
+        // Mostrar libros
+        function displayBooks(booksToShow) {
+            const container = document.getElementById('books-container');
+            
+            if (booksToShow.length === 0) {
+                container.innerHTML = '<div class="no-items">No se encontraron libros.</div>';
+                return;
+            }
+
+            // Simulamos las calificaciones promedio (ya que no tienes tabla de calificaciones)
+            const booksHTML = booksToShow.map(book => {
+                const avgRating = getAverageRating(book.id);
+                const userRating = getUserRating(book.id);
+                
+                return `
+                    <div class="book-card">
+                        <div class="book-title">${book.titulo}</div>
+                        <div class="book-author">por ${book.autor}</div>
+                        <div class="book-info">
+                            <strong>ISBN:</strong> ${book.isbn}<br>
+                            <strong>Categoría:</strong> ${book.categoria}<br>
+                            <strong>Ejemplares disponibles:</strong> ${book.ejemplares}
+                        </div>
+                        
+                        <div class="rating-section">
+                            <div class="current-rating">
+                                <span>Calificación promedio:</span>
+                                <div class="stars">
+                                    ${generateStarsDisplay(avgRating)}
+                                </div>
+                                <span>(${avgRating.toFixed(1)})</span>
+                            </div>
+                            <div>
+                                <span>Tu calificación:</span>
+                                <div class="stars" data-book-id="${book.id}">
+                                    ${generateStarsInputForRating(userRating)}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                            ${book.disponible && book.ejemplares > 0 
+                                ? `<button class="btn btn-primary" onclick="requestLoan(${book.id})">Solicitar Préstamo</button>`
+                                : `<button class="btn btn-secondary" disabled>No Disponible</button>`
+                            }
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = booksHTML.join('');
+
+            // Configurar eventos de calificación
+            setupRatingEvents();
+        }
+
+        // Filtrar libros
+        function filterBooks() {
+            const searchTerm = document.getElementById('search-books').value.toLowerCase();
+            const filteredBooks = books.filter(book => 
+                book.titulo.toLowerCase().includes(searchTerm) ||
+                book.autor.toLowerCase().includes(searchTerm)
+            );
+            displayBooks(filteredBooks);
+        }
+
+        // Simulación de calificaciones (ya que no tienes tabla de calificaciones)
+        function getAverageRating(bookId) {
+            // Por ahora retornamos un rating aleatorio entre 3 y 5
+            return 3 + Math.random() * 2;
+        }
+
+        function getUserRating(bookId) {
+            return userRatings[bookId] || 0;
+        }
+
+        // Generar estrellas para mostrar calificación
+        function generateStarsDisplay(rating) {
+            let stars = '';
+            for (let i = 1; i <= 5; i++) {
+                stars += `<span class="star ${i <= rating ? 'active' : ''}">★</span>`;
+            }
+            return stars;
+        }
+
+        // Generar estrellas para input basado en calificación específica
+        function generateStarsInputForRating(rating) {
+            let stars = '';
+            for (let i = 1; i <= 5; i++) {
+                stars += `<span class="star ${i <= rating ? 'active' : ''}" data-rating="${i}">★</span>`;
+            }
+            return stars;
+        }
+
+        // Establecer calificación (guardada en memoria local)
+        function setRating(bookId, rating) {
+            userRatings[bookId] = rating;
+            localStorage.setItem(`ratings_${currentUser.id}`, JSON.stringify(userRatings));
+            mostrarAlerta('Calificación guardada exitosamente');
+        }
+
+        // Configurar eventos de calificación
+        function setupRatingEvents() {
+            document.querySelectorAll('.stars[data-book-id]').forEach(starsContainer => {
+                const bookId = parseInt(starsContainer.dataset.bookId);
+                const stars = starsContainer.querySelectorAll('.star');
+
+                stars.forEach((star, index) => {
+                    star.addEventListener('click', () => {
+                        const rating = parseInt(star.dataset.rating);
+                        setRating(bookId, rating);
+                        
+                        // Actualizar visualización
+                        stars.forEach(s => s.classList.remove('active'));
+                        for (let i = 0; i < rating; i++) {
+                            stars[i].classList.add('active');
+                        }
+                    });
+                });
+            });
+        }
+
+        // Solicitar préstamo
+        function requestLoan(bookId) {
+            const book = books.find(b => b.id === bookId);
+            selectedBookForLoan = book;
+            
+            document.getElementById('modal-title').textContent = 'Confirmar Préstamo';
+            document.getElementById('modal-content').innerHTML = `
+                ¿Deseas solicitar el préstamo del libro:<br>
+                <strong>"${book.titulo}"</strong> por ${book.autor}?<br><br>
+                El préstamo será por 15 días.
+            `;
+            
+            document.getElementById('loan-modal').style.display = 'block';
+        }
+
+        // Confirmar préstamo (adaptado a tu estructura de BD)
+        async function confirmLoan() {
+            if (!selectedBookForLoan) return;
+
+            const newLoan = {
+                id_usuario: currentUser.id,
+                id_libro: selectedBookForLoan.id,
+                fecha_prestamo: new Date().toISOString().split('T')[0],
+                fecha_devolucion: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                estado: 'pendiente'
+            };
+
+            const result = await fetchAPI('prestamos', {
+                method: 'POST',
+                body: JSON.stringify(newLoan)
+            });
+
+            if (result) {
+                mostrarAlerta('Préstamo solicitado exitosamente');
+                closeLoanModal();
+                loadBooks(); // Recargar libros
+            }
+        }
+
+        // Cerrar modal de préstamo
+        function closeLoanModal() {
+            document.getElementById('loan-modal').style.display = 'none';
+            selectedBookForLoan = null;
+        }
+
+        // FUNCIÓN CORREGIDA: Cargar préstamos SOLO del usuario actual
+        async function loadLoans() {
+            try {
+            console.log('Cargando préstamos para el usuario:', currentUser.id);
+            
+                // Obtener préstamos, devoluciones y libros
+                const [prestamos, devoluciones, libros] = await Promise.all([
+                    fetchAPI('prestamos'),
+                    fetchAPI('devoluciones'),
+                    fetchAPI('libros')
+                ]);
+                
+                if (!prestamos || !libros) {
+                    mostrarAlerta('Error al cargar los datos', 'error');
+                return;
+            }
+
+                const container = document.getElementById('loans-container');
+                if (!container) return;
+
+                // Filtrar SOLO los préstamos del usuario actual
+                const userLoans = prestamos.filter(loan => loan.id_usuario === currentUser.id);
+
+            if (userLoans.length === 0) {
+                container.innerHTML = '<div class="no-items">No tienes préstamos activos.</div>';
+                return;
+            }
+
+                // Relacionar préstamos con libros y devoluciones
+                const loansWithDetails = userLoans.map(loan => {
+                    const libro = libros.find(l => l.id === loan.id_libro);
+                    const devolucion = devoluciones?.find(d => d.id_prestamo === loan.id);
+                    
+                    return {
+                        ...loan,
+                        libro_titulo: libro ? libro.titulo : 'Libro no encontrado',
+                        libro_autor: libro ? libro.autor : 'Autor desconocido',
+                        libro_editorial: libro ? libro.editorial : 'No disponible',
+                        libro_isbn: libro ? libro.isbn : 'No disponible',
+                        libro_genero: libro ? libro.genero : 'No disponible',
+                        devuelto: !!devolucion,
+                        fecha_devolucion_real: devolucion ? devolucion.fecha_devolucion : null
+                    };
+                });
+
+                // Ordenar por fecha más reciente
+                loansWithDetails.sort((a, b) => new Date(b.fecha_prestamo) - new Date(a.fecha_prestamo));
+
+                container.innerHTML = loansWithDetails.map(loan => {
+                    const fechaDevolucion = new Date(loan.fecha_devolucion);
+                    const hoy = new Date();
+                    const diasRetraso = Math.floor((hoy - fechaDevolucion) / (1000 * 60 * 60 * 24));
+                    const isOverdue = diasRetraso > 0 && !loan.devuelto;
+                    
+                    let estado = loan.estado || 'pendiente';
+                    let estadoClass = '';
+                    let estadoText = '';
+                    let diasInfo = '';
+
+                    if (loan.devuelto) {
+                        estado = 'devuelto';
+                        estadoText = '📚 Devuelto';
+                        estadoClass = 'estado-devuelto';
+                        diasInfo = `<strong>Fecha de devolución:</strong> ${formatDate(loan.fecha_devolucion_real)}`;
+                    } else {
+                        switch(estado) {
+                            case 'pendiente':
+                                estadoText = '⏳ Pendiente de Aprobación';
+                                estadoClass = 'estado-pendiente';
+                                diasInfo = `<strong>Días restantes:</strong> 15 días`;
+                                break;
+                            case 'aprobado':
+                                if (isOverdue) {
+                                    estadoText = `⚠️ En Préstamo (${diasRetraso} días de retraso)`;
+                                    estadoClass = 'estado-adeudo';
+                                    diasInfo = `<strong>Días de retraso:</strong> ${diasRetraso} días`;
+                                } else {
+                                    estadoText = '✅ En Préstamo';
+                                    estadoClass = 'estado-aprobado';
+                                    diasInfo = `<strong>Días restantes:</strong> ${15 - diasRetraso} días`;
+                                }
+                                break;
+                            case 'rechazado':
+                                estadoText = '❌ Rechazado';
+                                estadoClass = 'estado-rechazado';
+                                break;
+                            default:
+                                estadoText = '❓ Estado Desconocido';
+                                estadoClass = 'estado-desconocido';
+                        }
+                    }
+                
+                return `
+                    <div class="loan-item">
+                        <div class="loan-info">
+                            <h3>${loan.libro_titulo}</h3>
+                                <div class="book-details">
+                            <p><strong>Autor:</strong> ${loan.libro_autor}</p>
+                                    <p><strong>Editorial:</strong> ${loan.libro_editorial}</p>
+                                    <p><strong>ISBN:</strong> ${loan.libro_isbn}</p>
+                                    <p><strong>Género:</strong> ${loan.libro_genero}</p>
+                                </div>
+                            <div class="loan-dates">
+                                <strong>Fecha de préstamo:</strong> ${formatDate(loan.fecha_prestamo)}<br>
+                                <strong>Fecha de vencimiento:</strong> ${formatDate(loan.fecha_devolucion)}<br>
+                                    ${diasInfo}
+                                </div>
+                            </div>
+                            <div class="loan-status">
+                                <span class="status ${estadoClass}">${estadoText}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                // Agregar estilos para mejorar la visualización
+                const style = document.createElement('style');
+                style.textContent = `
+                    .loan-item {
+                        background: #fff;
+                        border-radius: 8px;
+                        padding: 1rem;
+                        margin-bottom: 1rem;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }
+                    .book-details {
+                        margin: 0.5rem 0;
+                        padding: 0.5rem;
+                        background: #f8f9fa;
+                        border-radius: 4px;
+                    }
+                    .book-details p {
+                        margin: 0.25rem 0;
+                    }
+                    .loan-dates {
+                        margin-top: 0.5rem;
+                        padding-top: 0.5rem;
+                        border-top: 1px solid #eee;
+                    }
+                    .loan-status {
+                        margin-top: 0.5rem;
+                        text-align: right;
+                    }
+                    .status {
+                        padding: 0.25rem 0.5rem;
+                        border-radius: 4px;
+                        font-weight: bold;
+                    }
+                    .estado-pendiente { background: #fff3cd; color: #856404; }
+                    .estado-aprobado { background: #d4edda; color: #155724; }
+                    .estado-adeudo { background: #f8d7da; color: #721c24; }
+                    .estado-rechazado { background: #f8d7da; color: #721c24; }
+                    .estado-devuelto { background: #cce5ff; color: #004085; }
+                `;
+                document.head.appendChild(style);
+
+            } catch (error) {
+                console.error('Error al cargar préstamos:', error);
+                mostrarAlerta('Error al cargar tus préstamos', 'error');
+            }
+        }
+
+        // Cargar adeudos SOLO del usuario actual
+        async function loadDebts() {
+            try {
+            console.log('Cargando adeudos para el usuario:', currentUser.id);
+            
+                // Obtener préstamos y devoluciones
+                const [prestamos, devoluciones] = await Promise.all([
+                    fetchAPI('prestamos'),
+                    fetchAPI('devoluciones')
+                ]);
+                
+                if (!prestamos) return;
+            
+            const debtSummary = document.getElementById('debt-summary');
+            const overdueContainer = document.getElementById('overdue-loans');
+                if (!debtSummary || !overdueContainer) return;
+
+                // Filtrar SOLO los préstamos del usuario actual que estén vencidos y no devueltos
+                const overdueLoans = prestamos.filter(loan => {
+                    if (loan.id_usuario !== currentUser.id) return false;
+                    if (loan.estado !== 'aprobado') return false;
+                    
+                    const devolucion = devoluciones?.find(d => d.id_prestamo === loan.id);
+                    if (devolucion) return false;
+                    
+                    const fechaDevolucion = new Date(loan.fecha_devolucion);
+                    const hoy = new Date();
+                    return hoy > fechaDevolucion;
+                });
+
+            if (overdueLoans.length === 0) {
+                debtSummary.innerHTML = `
+                    <div class="debt-amount">$0.00</div>
+                    <div>¡Excelente! No tienes adeudos pendientes.</div>
+                `;
+                overdueContainer.innerHTML = '<div class="no-items">No tienes préstamos vencidos.</div>';
+                return;
+            }
+
+                // Calcular multas (2 pesos por día de retraso después de los 15 días)
+            const loansWithDebts = await Promise.all(overdueLoans.map(async loan => {
+                try {
+                        const book = await fetchAPI(`libros/${loan.id_libro}`);
+                        const fechaDevolucion = new Date(loan.fecha_devolucion);
+                        const hoy = new Date();
+                        const diasRetraso = Math.floor((hoy - fechaDevolucion) / (1000 * 60 * 60 * 24));
+                        const multa = diasRetraso * 2; // 2 pesos por día de retraso
+
+                    return {
+                        ...loan,
+                        libro_titulo: book ? book.titulo : 'Libro no encontrado',
+                        libro_autor: book ? book.autor : 'Autor desconocido',
+                            dias_retraso: diasRetraso,
+                            multa: multa
+                    };
+                } catch (error) {
+                    console.error('Error al obtener libro para adeudo:', error);
+                    return null;
+                }
+            }));
+
+                // Filtrar préstamos válidos y calcular total
+            const validLoansWithDebts = loansWithDebts.filter(loan => loan !== null);
+            const totalDebt = validLoansWithDebts.reduce((sum, loan) => sum + loan.multa, 0);
+
+            debtSummary.innerHTML = `
+                <div class="debt-amount">$${totalDebt.toFixed(2)}</div>
+                <div>Total de adeudos por préstamos vencidos</div>
+            `;
+
+            overdueContainer.innerHTML = validLoansWithDebts.map(loan => {
+                return `
+                    <div class="loan-item">
+                        <div class="loan-info">
+                            <h3>${loan.libro_titulo}</h3>
+                            <p><strong>Autor:</strong> ${loan.libro_autor}</p>
+                            <div class="loan-dates">
+                                    <strong>Fecha de préstamo:</strong> ${formatDate(loan.fecha_prestamo)}<br>
+                                    <strong>Fecha de vencimiento:</strong> ${formatDate(loan.fecha_devolucion)}<br>
+                                    <strong>Días de retraso:</strong> ${loan.dias_retraso} días<br>
+                                    <strong>Multa por día:</strong> $2.00<br>
+                                    <strong>Total a pagar:</strong> $${loan.multa.toFixed(2)}
+                                </div>
+                        </div>
+                        <div>
+                            <span class="status overdue">Vencido</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            } catch (error) {
+                console.error('Error al cargar adeudos:', error);
+                mostrarAlerta('Error al cargar tus adeudos', 'error');
+            }
+        }
+
+        // Formatear fecha
+        function formatDate(dateString) {
+            const options = { year: 'numeric', month: 'long', day: 'numeric' };
+            return new Date(dateString).toLocaleDateString('es-ES', options);
+        }
+
+        // Cerrar sesión
+        function cerrarSesion() {
+            sessionStorage.removeItem('usuarioLogueado');
+            window.location.href = 'login.html';
+        }
+
+        // Cerrar modal al hacer clic fuera
+        document.getElementById('loan-modal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeLoanModal();
+            }
+        });
+    </script>
+</body>
+</html>

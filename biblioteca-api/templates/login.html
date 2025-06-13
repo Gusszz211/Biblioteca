@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Login - Sistema de Biblioteca</title>
+    <link rel="stylesheet" href="style2.css" />
+   
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <h1>📚 Sistema de Biblioteca</h1>
+            <p>Accede a tu cuenta para visualizar libros y préstamos</p>
+        </div>
+
+        <div class="login-form">
+            <div id="alert-container"></div>
+
+            <!-- Formulario de Login -->
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="login-correo">Correo Electrónico:</label>
+                    <input type="email" id="login-correo" required />
+                </div>
+                <div class="form-group">
+                    <label for="login-contrasena">Contraseña:</label>
+                    <input type="password" id="login-contrasena" required />
+                </div>
+                <button type="submit" class="btn btn-primary">Iniciar Sesión</button>
+                <div class="toggle-form">
+                    <p>¿No tienes cuenta? <a href="#" onclick="toggleForm(); return false;">Regístrate aquí</a></p>
+                </div>
+            </form>
+
+            <!-- Formulario de Registro -->
+            <form id="register-form" class="hidden">
+                <div class="register-note">
+                    <strong>Nota:</strong> Registro de nuevos usuarios.
+                </div>
+
+                <div class="form-group">
+                    <label for="register-nombre">Nombre Completo:</label>
+                    <input type="text" id="register-nombre" required />
+                </div>
+                <div class="form-group">
+                    <label for="register-correo">Correo Electrónico:</label>
+                    <input type="email" id="register-correo" required />
+                </div>
+                <div class="form-group">
+                    <label for="register-contrasena">Contraseña:</label>
+                    <input type="password" id="register-contrasena" required />
+                </div>
+                <div class="form-group">
+                    <label for="register-confirmar">Confirmar Contraseña:</label>
+                    <input type="password" id="register-confirmar" required />
+                </div>
+
+                <!-- Solo aparecerá en index.html -->
+                <div class="form-group hidden" id="tipo-usuario-group">
+                    <label for="register-tipo">Tipo de Usuario:</label>
+                    <select id="register-tipo">
+                        <option value="lector">Lector</option>
+                        <option value="administrador">Administrador</option>
+                    </select>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Registrarse</button>
+                <div class="toggle-form">
+                    <p>¿Ya tienes cuenta? <a href="#" onclick="toggleForm(); return false;">Inicia sesión aquí</a></p>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:8080/api';
+        let isLoginForm = true;
+
+        // Muestra alerta temporal
+        function mostrarAlerta(mensaje, tipo = 'success') {
+            const alertContainer = document.getElementById('alert-container');
+            alertContainer.innerHTML = '';
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${tipo === 'error' ? 'error' : 'success'}`;
+            alert.textContent = mensaje;
+            alertContainer.appendChild(alert);
+            setTimeout(() => alert.remove(), 5000);
+        }
+
+        // Realiza peticiones fetch a la API
+        async function fetchAPI(endpoint, options = {}) {
+            try {
+                console.log('Haciendo petición a:', API_BASE_URL + endpoint);
+                
+                const resp = await fetch(API_BASE_URL + endpoint, {
+                    headers: { 
+                        'Content-Type': 'application/json', 
+                        ...options.headers 
+                    },
+                    ...options
+                });
+                
+                console.log('Respuesta del servidor:', resp.status, resp.statusText);
+                
+                if (!resp.ok) {
+                    const errorText = await resp.text();
+                    console.error('Error del servidor:', errorText);
+                    throw new Error(`Error HTTP ${resp.status}: ${errorText}`);
+                }
+                
+                const data = await resp.json();
+                console.log('Datos recibidos:', data);
+                return data;
+                
+            } catch (err) {
+                console.error('Error en fetchAPI:', err);
+                mostrarAlerta(`Error de conexión: ${err.message}`, 'error');
+                return null;
+            }
+        }
+
+        // Alterna entre formulario login y registro
+        function toggleForm() {
+            document.getElementById('login-form').classList.toggle('hidden');
+            document.getElementById('register-form').classList.toggle('hidden');
+            document.getElementById('alert-container').innerHTML = '';
+            isLoginForm = !isLoginForm;
+        }
+
+        // Manejo envío login
+        document.getElementById('login-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            console.log('Iniciando proceso de login...');
+
+            const correo = document.getElementById('login-correo').value.trim().toLowerCase();
+            const contrasena = document.getElementById('login-contrasena').value;
+
+            console.log('Datos de login:', { correo, contrasena: '***' });
+
+            // Validar campos vacíos
+            if (!correo || !contrasena) {
+                mostrarAlerta('Por favor, completa todos los campos', 'error');
+                return;
+            }
+
+            mostrarAlerta('Verificando credenciales...', 'success');
+
+            const usuarios = await fetchAPI('/usuarios');
+            if (!usuarios) {
+                mostrarAlerta('Error al conectar con el servidor. Verifica que esté funcionando.', 'error');
+                return;
+            }
+
+            console.log('Usuarios obtenidos:', usuarios.length);
+
+            const user = usuarios.find(u => {
+                const emailMatch = u.correo && u.correo.trim().toLowerCase() === correo;
+                
+                // Si el usuario no tiene contraseña en la BD, permitir cualquier contraseña
+                const passwordMatch = u.contrasena ? u.contrasena === contrasena : true;
+                
+                console.log(`Comparando: ${u.correo} === ${correo}? ${emailMatch}`);
+                console.log(`Usuario tiene contraseña: ${!!u.contrasena}, password match: ${passwordMatch}`);
+                
+                return emailMatch && passwordMatch;
+            });
+
+            if (!user) {
+                console.log('Usuario no encontrado');
+                mostrarAlerta('Correo no encontrado en el sistema', 'error');
+                return;
+            }
+
+            console.log('Usuario encontrado:', user);
+
+            // Guardar en sessionStorage
+            sessionStorage.setItem('usuarioLogueado', JSON.stringify(user));
+            mostrarAlerta('Inicio de sesión exitoso. Redirigiendo...', 'success');
+
+            setTimeout(() => {
+                if (user.tipo_usuario === 'administrador') {
+                    console.log('Redirigiendo a index.html (admin)');
+                    window.location.href = 'index.html';
+                } else {
+                    console.log('Redirigiendo a lector.html');
+                    window.location.href = 'lector.html';
+                }
+            }, 1500);
+        });
+
+        // Manejo envío registro
+        document.getElementById('register-form').addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const nombre = document.getElementById('register-nombre').value.trim();
+            const correo = document.getElementById('register-correo').value.trim().toLowerCase();
+            const contrasena = document.getElementById('register-contrasena').value;
+            const confirmar = document.getElementById('register-confirmar').value;
+
+            if (contrasena !== confirmar) {
+                mostrarAlerta('Las contraseñas no coinciden', 'error');
+                return;
+            }
+
+            if (contrasena.length < 6) {
+                mostrarAlerta('La contraseña debe tener al menos 6 caracteres', 'error');
+                return;
+            }
+
+            const usuarios = await fetchAPI('/usuarios');
+            if (!usuarios) return;
+
+            if (usuarios.some(u => u.correo && u.correo.trim().toLowerCase() === correo)) {
+                mostrarAlerta('Este correo ya está registrado', 'error');
+                return;
+            }
+
+            // Mostrar select tipo solo si estamos en index.html
+            const esEnIndex = window.location.pathname.endsWith('index.html') || 
+                              window.location.pathname.endsWith('/') ||
+                              window.location.pathname === '';
+            const tipo = esEnIndex
+                ? document.getElementById('register-tipo').value
+                : 'lector';
+
+            const nuevo = { 
+                nombre, 
+                correo, 
+                contrasena, 
+                tipo_usuario: tipo 
+            };
+
+            console.log('Registrando usuario:', nuevo);
+
+            const result = await fetchAPI('/usuarios', {
+                method: 'POST',
+                body: JSON.stringify(nuevo)
+            });
+
+            if (!result) return;
+
+            mostrarAlerta('Registro exitoso. Ahora puedes iniciar sesión.', 'success');
+            this.reset();
+
+            setTimeout(() => {
+                toggleForm();
+            }, 2000);
+        });
+
+        // Al cargar la página, si ya hay usuario logueado, redirigir
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Página cargada, verificando sesión...');
+            
+            const usuario = sessionStorage.getItem('usuarioLogueado');
+            if (usuario) {
+                const user = JSON.parse(usuario);
+                console.log('Usuario ya logueado:', user);
+                const destino = user.tipo_usuario === 'administrador' ? 'index.html' : 'lector.html';
+                console.log('Redirigiendo a:', destino);
+                window.location.href = destino;
+                return;
+            }
+
+            // Mostrar select tipo usuario solo en index.html
+            const esEnIndex = window.location.pathname.endsWith('index.html') || 
+                              window.location.pathname.endsWith('/') ||
+                              window.location.pathname === '';
+            
+            if (esEnIndex) {
+                console.log('Mostrando selector de tipo de usuario');
+                document.getElementById('tipo-usuario-group').classList.remove('hidden');
+            }
+
+            // Verificar conexión con el servidor al cargar
+            fetchAPI('/usuarios').then(usuarios => {
+                if (usuarios) {
+                    console.log('Conexión con servidor OK:', usuarios.length, 'usuarios');
+                } else {
+                    console.error('No se pudo conectar con el servidor');
+                }
+            });
+        });
+
+        // Función para debuggear
+        window.debugLogin = function() {
+            console.log('=== DEBUG INFO ===');
+            console.log('API_BASE_URL:', API_BASE_URL);
+            console.log('sessionStorage usuario:', sessionStorage.getItem('usuarioLogueado'));
+            console.log('Ruta actual:', window.location.pathname);
+        };
+    </script>
+</body>
+</html>

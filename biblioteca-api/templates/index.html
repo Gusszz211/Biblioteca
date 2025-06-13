@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Biblioteca</title>
+    <!-- CSS -->
+    <link rel="stylesheet" href="style.css">
+    <!-- SweetAlert2 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11.7.32/dist/sweetalert2.min.css">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📚 Sistema de Biblioteca</h1>
+            <p>Gestión integral de libros, usuarios y préstamos</p>
+            
+            <div class="nav-tabs">
+                <button class="nav-tab active" onclick="showSection('dashboard')">Dashboard</button>
+                <button class="nav-tab" onclick="showSection('usuarios')">Usuarios</button>
+                <button class="nav-tab" onclick="showSection('libros')">Libros</button>
+                <button class="nav-tab" onclick="showSection('prestamos')">Préstamos</button>
+                <button class="nav-tab" onclick="showSection('devoluciones')">Devoluciones</button>
+            </div>
+        </div>
+
+        <div id="alert-container"></div>
+
+        <!-- Dashboard -->
+        <div id="dashboard" class="section active">
+            <h2>📊 Dashboard</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number" id="total-usuarios">0</div>
+                    <div class="stat-label">Usuarios Registrados</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="total-libros">0</div>
+                    <div class="stat-label">Libros en Catálogo</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="prestamos-activos">0</div>
+                    <div class="stat-label">Préstamos Activos</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="libros-disponibles">0</div>
+                    <div class="stat-label">Libros Disponibles</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Usuarios -->
+        <div id="usuarios" class="section">
+            <h2>👥 Gestión de Usuarios</h2>
+            
+            <form id="usuario-form">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="usuario-nombre">Nombre:</label>
+                        <input type="text" id="usuario-nombre" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="usuario-correo">Correo:</label>
+                        <input type="email" id="usuario-correo" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="usuario-contrasena">Contraseña:</label>
+                        <input type="password" id="usuario-contrasena" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="usuario-tipo">Tipo de Usuario:</label>
+                        <select id="usuario-tipo">
+                            <option value="lector">Lector</option>
+                            <option value="administrador">Administrador</option>
+                        </select>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Registrar Usuario</button>
+            </form>
+
+            <div class="search-bar">
+                <input type="text" id="search-usuarios" placeholder="Buscar usuarios...">
+                <button class="btn btn-primary" onclick="buscarUsuarios()">Buscar</button>
+            </div>
+
+            <div class="table-container">
+                <table id="usuarios-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Nombre</th>
+                            <th>Correo</th>
+                            <th>Tipo</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Libros -->
+        <div id="libros" class="section">
+            <h2>📖 Gestión de Libros</h2>
+            
+            <form id="libro-form">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="libro-titulo">Título:</label>
+                        <input type="text" id="libro-titulo" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="libro-autor">Autor:</label>
+                        <input type="text" id="libro-autor" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="libro-editorial">Editorial:</label>
+                        <input type="text" id="libro-editorial">
+                    </div>
+                    <div class="form-group">
+                        <label for="libro-anio">Año de Publicación:</label>
+                        <input type="number" id="libro-anio" min="1800" max="2024">
+                    </div>
+                    <div class="form-group">
+                        <label for="libro-genero">Género:</label>
+                        <input type="text" id="libro-genero">
+                    </div>
+                    <div class="form-group">
+                        <label for="libro-isbn">ISBN:</label>
+                        <input type="text" id="libro-isbn">
+                    </div>
+                    <div class="form-group">
+                        <label for="libro-cantidad">Cantidad Disponible:</label>
+                        <input type="number" id="libro-cantidad" min="0" value="1">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Agregar Libro</button>
+            </form>
+
+            <div class="search-bar">
+                <input type="text" id="search-libros" placeholder="Buscar libros...">
+                <button class="btn btn-primary" onclick="buscarLibros()">Buscar</button>
+            </div>
+
+            <div class="table-container">
+                <table id="libros-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Título</th>
+                            <th>Autor</th>
+                            <th>Editorial</th>
+                            <th>Año</th>
+                            <th>Género</th>
+                            <th>Disponibles</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Préstamos -->
+        <div id="prestamos" class="section">
+            <h2>📋 Gestión de Préstamos</h2>
+            
+            <form id="prestamo-form">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="prestamo-usuario">Usuario:</label>
+                        <select id="prestamo-usuario" required>
+                            <option value="">Seleccionar usuario...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="prestamo-libro">Libro:</label>
+                        <select id="prestamo-libro" required>
+                            <option value="">Seleccionar libro...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="prestamo-fecha">Fecha de Préstamo:</label>
+                        <input type="date" id="prestamo-fecha" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="prestamo-devolucion">Fecha de Devolución:</label>
+                        <input type="date" id="prestamo-devolucion" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="prestamo-estado">Estado Inicial:</label>
+                        <select id="prestamo-estado" required>
+                            <option value="Pendiente">Pendiente</option>
+                            <option value="Autorizado">Autorizado</option>
+                            <option value="Rechazado">Rechazado</option>
+                        </select>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Registrar Préstamo</button>
+            </form>
+
+            <div class="table-container">
+                <table id="prestamos-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Usuario</th>
+                            <th>Libro</th>
+                            <th>Fecha Préstamo</th>
+                            <th>Fecha Devolución</th>
+                            <th>Estado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Devoluciones -->
+        <div id="devoluciones" class="section">
+            <h2>🔄 Gestión de Devoluciones</h2>
+            
+            <form id="devolucion-form">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="devolucion-prestamo">Préstamo:</label>
+                        <select id="devolucion-prestamo" required>
+                            <option value="">Seleccionar préstamo...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="devolucion-fecha">Fecha de Entrega:</label>
+                        <input type="date" id="devolucion-fecha" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="devolucion-observaciones">Observaciones:</label>
+                        <textarea id="devolucion-observaciones" rows="3"></textarea>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-success">Registrar Devolución</button>
+            </form>
+
+            <div class="table-container">
+                <table id="devoluciones-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Préstamo</th>
+                            <th>Usuario</th>
+                            <th>Libro</th>
+                            <th>Fecha Entrega</th>
+                            <th>Observaciones</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.7.32/dist/sweetalert2.all.min.js"></script>
+    <script src="main.js"></script>
+  
+
+</body>
+</html>
